@@ -1,3 +1,5 @@
+// Card limit utilities — spending cap enforcement and daily progress tracking.
+
 export interface CardLimitApplication {
   programMax: number;
   userCap?: number | null;
