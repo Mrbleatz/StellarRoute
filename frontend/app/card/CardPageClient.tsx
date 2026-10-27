@@ -10,11 +10,25 @@ import {
   type CardFxSnapshot,
 } from '@/lib/card/fx';
 import { useWallet } from '@/hooks/useWallet';
+
+import { useCardFreezeAction } from '@/hooks/useCardFreezeAction';
+import { CardFreezeButton } from '@/components/card/CardFreezeButton';
+import { CardFace } from '@/components/card/CardFace';
+<CardFace
+  last4="4567"
+  expiry="12/27"
+  usdcAvailable="1,234.56"
+  isFrozen={isFrozen}
+/>
+
+<CardFreezeButton api={freezeApi} />
+
 import { calculateDailySpendingProgress } from '@/lib/card/limits';
 import { CardDailyLimitProgress } from '@/components/card/CardDailyLimitProgress';
 
 // The card program's offramp corridor quotes fiat per USDC, so NGN leads.
 const FEATURED_FIAT_CURRENCY = 'NGN';
+
 
 type ActivityRow = {
   authorization_id: string;
@@ -58,7 +72,13 @@ const FIXTURE_ROWS: ActivityRow[] = [
 
 export function CardPageClient() {
   const { session } = useWallet();
-  const [isFrozen, setIsFrozen] = useState(false);
+const freezeApi = useCardFreezeAction({
+  onSuccess: (action, txHash) => {
+    console.info(`Card ${action} completed`, txHash);
+  },
+});
+
+const isFrozen = freezeApi.isFrozen;
   const [rows, setRows] = useState<ActivityRow[]>(FIXTURE_ROWS);
   const [fxSnapshot, setFxSnapshot] = useState<CardFxSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,20 +128,21 @@ export function CardPageClient() {
     void loadActivity();
   }, []);
 
-  const handleFreeze = () => {
-    if (typeof window !== 'undefined' && !window.confirm('Freeze this card program? New authorizations will be declined immediately.')) {
-      return;
-    }
-    setIsFrozen(true);
-  };
+  const freezeApi = useCardFreezeAction({
+  onSuccess: (action, txHash) => {
+    console.info(`Card ${action} completed`, txHash);
+  },
+});
 
-  const handleUnfreeze = () => {
-    if (!canUnfreeze) return;
-    if (typeof window !== 'undefined' && !window.confirm('Unfreeze this card program after wallet verification?')) {
-      return;
-    }
-    setIsFrozen(false);
-  };
+const isFrozen = freezeApi.isFrozen;
+
+  const freezeApi = useCardFreezeAction({
+  onSuccess: (action, txHash) => {
+    console.info(`Card ${action} completed`, txHash);
+  },
+});
+
+const isFrozen = freezeApi.isFrozen;
 
   const dailyProgress = calculateDailySpendingProgress(rows, DAILY_LIMIT_USDC);
 
@@ -139,21 +160,7 @@ export function CardPageClient() {
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={handleFreeze}
-            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300"
-          >
-            Freeze
-          </button>
-          <button
-            type="button"
-            onClick={handleUnfreeze}
-            disabled={!canUnfreeze}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100 disabled:dark:border-slate-800 disabled:dark:text-slate-500"
-          >
-            Unfreeze
-          </button>
+          <CardFreezeButton api={freezeApi} />
         </div>
 
         <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
