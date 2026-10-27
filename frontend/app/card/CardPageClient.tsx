@@ -1,50 +1,102 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
+import { CardFxFreshnessBadge } from '@/components/card/CardFxFreshnessBadge';
+import {
+  computeCardFxQuotes,
+  formatCardFxRate,
+  getCardFxQuote,
+  type CardFxSnapshot,
+} from '@/lib/card/fx';
 import { useWallet } from '@/hooks/useWallet';
+
+import { useCardFreezeAction } from '@/hooks/useCardFreezeAction';
+import { CardFreezeButton } from '@/components/card/CardFreezeButton';
+import { CardFace } from '@/components/card/CardFace';
+<CardFace
+  last4="4567"
+  expiry="12/27"
+  usdcAvailable="1,234.56"
+  isFrozen={isFrozen}
+/>
+
+<CardFreezeButton api={freezeApi} />
+
+import { calculateDailySpendingProgress } from '@/lib/card/limits';
+import { CardDailyLimitProgress } from '@/components/card/CardDailyLimitProgress';
+
+// The card program's offramp corridor quotes fiat per USDC, so NGN leads.
+const FEATURED_FIAT_CURRENCY = 'NGN';
+
 
 type ActivityRow = {
   authorization_id: string;
+  type: string;
   state: string;
   merchant: string;
   fiat_amount: number;
   fiat_currency: string;
   amount_stroops: number;
   status: string;
+  settledAt: string;
 };
+
+/** Default daily limit in USDC ($500.00). */
+const DAILY_LIMIT_USDC = 500;
 
 const FIXTURE_ROWS: ActivityRow[] = [
   {
     authorization_id: 'auth-1001',
-    state: 'approved',
+    type: 'pos_debit',
+    state: 'settled',
     merchant: 'Café Verde',
     fiat_amount: 4200,
     fiat_currency: 'USD',
     amount_stroops: 42_000_000,
     status: 'active',
+    settledAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   },
   {
     authorization_id: 'auth-1002',
-    state: 'captured',
+    type: 'pos_debit',
+    state: 'settled',
     merchant: 'Northwind Market',
     fiat_amount: 1850,
     fiat_currency: 'USD',
     amount_stroops: 18_500_000,
     status: 'cleared',
+    settledAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
   },
 ];
 
 export function CardPageClient() {
   const { session } = useWallet();
-  const [isFrozen, setIsFrozen] = useState(false);
+const freezeApi = useCardFreezeAction({
+  onSuccess: (action, txHash) => {
+    console.info(`Card ${action} completed`, txHash);
+  },
+});
+
+const isFrozen = freezeApi.isFrozen;
   const [rows, setRows] = useState<ActivityRow[]>(FIXTURE_ROWS);
+  const [fxSnapshot, setFxSnapshot] = useState<CardFxSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const canUnfreeze = Boolean(session.isConnected);
 
   useEffect(() => {
-    let cancelled = false;
+    setFxSnapshot(computeCardFxQuotes(Date.now()));
+  }, []);
+
+  const handleRefreshRates = useCallback(() => {
+    setFxSnapshot((current) =>
+      computeCardFxQuotes(Date.now(), (current?.revision ?? 0) + 1),
+    );
+  }, []);
+
+  useEffect(() => {
+    const cancelled = false;
 
     async function loadActivity() {
       try {
@@ -76,20 +128,23 @@ export function CardPageClient() {
     void loadActivity();
   }, []);
 
-  const handleFreeze = () => {
-    if (typeof window !== 'undefined' && !window.confirm('Freeze this card program? New authorizations will be declined immediately.')) {
-      return;
-    }
-    setIsFrozen(true);
-  };
+  const freezeApi = useCardFreezeAction({
+  onSuccess: (action, txHash) => {
+    console.info(`Card ${action} completed`, txHash);
+  },
+});
 
-  const handleUnfreeze = () => {
-    if (!canUnfreeze) return;
-    if (typeof window !== 'undefined' && !window.confirm('Unfreeze this card program after wallet verification?')) {
-      return;
-    }
-    setIsFrozen(false);
-  };
+const isFrozen = freezeApi.isFrozen;
+
+  const freezeApi = useCardFreezeAction({
+  onSuccess: (action, txHash) => {
+    console.info(`Card ${action} completed`, txHash);
+  },
+});
+
+const isFrozen = freezeApi.isFrozen;
+
+  const dailyProgress = calculateDailySpendingProgress(rows, DAILY_LIMIT_USDC);
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-12">
@@ -105,21 +160,7 @@ export function CardPageClient() {
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={handleFreeze}
-            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300"
-          >
-            Freeze
-          </button>
-          <button
-            type="button"
-            onClick={handleUnfreeze}
-            disabled={!canUnfreeze}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100 disabled:dark:border-slate-800 disabled:dark:text-slate-500"
-          >
-            Unfreeze
-          </button>
+          <CardFreezeButton api={freezeApi} />
         </div>
 
         <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
@@ -127,7 +168,55 @@ export function CardPageClient() {
             ? 'Wallet connected. Unfreeze can be used at any time.'
             : 'Connect a wallet to enable Unfreeze.'}
         </div>
+
+        {/* ── Daily spending meter (CARD-49) ─────────────────────────── */}
+        <CardDailyLimitProgress progress={dailyProgress} className="mt-6" />
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+            Indicative FX rates
+          </h2>
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+            Not a locked price
+          </span>
+        </div>
+
+        {fxSnapshot ? (
+          <div className="flex flex-col gap-4">
+            <CardFxFreshnessBadge
+              rate={formatCardFxRate(
+                getCardFxQuote(fxSnapshot, FEATURED_FIAT_CURRENCY),
+              )}
+              retrievedAtMs={fxSnapshot.retrievedAtMs}
+              onRefresh={handleRefreshRates}
+            />
+
+            <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="grid grid-cols-[1fr_1fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.12em] text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                <span>Currency</span>
+                <span>Rate per USDC</span>
+              </div>
+              {fxSnapshot.quotes.map((quote) => (
+                <div
+                  key={quote.fiatCurrency}
+                  className="grid grid-cols-[1fr_1fr] gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-200"
+                >
+                  <span className="font-medium text-slate-900 dark:text-slate-50">
+                    {quote.fiatCurrency}
+                  </span>
+                  <span className="font-mono">{quote.ratePerUsdc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 p-6 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+            Loading indicative rates…
+          </div>
+        )}
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-4 flex items-center justify-between gap-3">
